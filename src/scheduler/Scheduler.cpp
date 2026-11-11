@@ -2,6 +2,8 @@
 #include "Queue.h"
 #include "PriorityQueue.h"
 
+#include <algorithm>
+
 ScheduleResult Scheduler::topologicalSort() const {
     ScheduleResult result;
     int n = graph.size();
@@ -40,7 +42,7 @@ ScheduleResult Scheduler::prioritySchedule() const {
         inDegree[id] = static_cast<int>(graph.getPredecessors(id).size());
     }
 
-    PriorityQueue ready(n);               // your own max-heap
+    PriorityQueue ready(n);
     for (int id = 0; id < n; id++) {
         if (inDegree[id] == 0) ready.push(id, graph.getTask(id).priority);
     }
@@ -57,5 +59,48 @@ ScheduleResult Scheduler::prioritySchedule() const {
     }
 
     result.valid = (static_cast<int>(result.order.size()) == n);
+    return result;
+}
+
+CriticalPathResult Scheduler::criticalPath() const {
+    CriticalPathResult result;
+    result.totalDuration = -1;
+
+    ScheduleResult topo = topologicalSort();
+    if (!topo.valid) return result;
+
+    int n = graph.size();
+    if (n == 0) {
+        result.totalDuration = 0;
+        return result;
+    }
+
+    std::vector<int> finish(n, 0);
+    std::vector<int> prev(n, -1);
+
+    for (int id : topo.order) {
+        int start = 0;
+        for (int p : graph.getPredecessors(id)) {
+            if (finish[p] > start) {
+                start = finish[p];
+                prev[id] = p;
+            }
+        }
+        finish[id] = start + graph.getTask(id).duration;
+    }
+
+
+    int end = 0;
+    for (int id = 1; id < n; id++) {
+        if (finish[id] > finish[end]) end = id;
+    }
+    result.totalDuration = finish[end];
+
+
+    for (int cur = end; cur != -1; cur = prev[cur]) {
+        result.path.push_back(cur);
+    }
+    std::reverse(result.path.begin(), result.path.end());
+
     return result;
 }
