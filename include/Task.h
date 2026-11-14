@@ -1,9 +1,10 @@
 #pragma once
-#include <string>
+
+const int MAX_TASKS = 100;
+const int NAME_LEN = 50;
 
 struct Task {
     int id;
-    std::string name;
-    int duration;   // time units
-    int priority;   // higher number = more urgent
+    char name[NAME_LEN];
+    bool active;
 };
