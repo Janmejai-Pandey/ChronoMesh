@@ -28,6 +28,14 @@ target_include_directories(test_scheduler PRIVATE include)
 enable_testing()
 add_test(NAME test_scheduler COMMAND test_scheduler)
 
+# UI target is separate so it does not replace the team's ChronoMesh entry point.
+add_executable(ChronoMeshUI
+    ui/src/main.cpp
+    ${CORE_SOURCES}
+    ${UI_SOURCES}
+)
+target_include_directories(ChronoMeshUI PRIVATE include)
+
 add_executable(ChronoMeshUITests
     tests/ChronoMeshTests.cpp
     ${CORE_SOURCES}
