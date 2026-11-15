@@ -13,4 +13,9 @@ public:
     const std::vector<int>& getSuccessors(int id) const;     // tasks that depend on id
     const std::vector<int>& getPredecessors(int id) const;   // tasks id depends on
     int size() const;
+private:
+    // Zero-based task IDs are used as indices by the scheduler.
+    std::vector<Task> tasks;
+    std::vector<std::vector<int>> successors;
+    std::vector<std::vector<int>> predecessors;
 };
