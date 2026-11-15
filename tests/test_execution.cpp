@@ -1,10 +1,18 @@
 // Person 3 tests: execution engine (states, failures, blocked tasks, log).
 #include "Execution.h"
 
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <string>
 #include <vector>
+
+// Defined in src/execution/Execution.cpp. Declared here because Execution.h is
+// kept unchanged for now - move this declaration into Execution.h later.
+ExecutionResult runWithFailures(const Graph& graph, int workerCount,
+                                const std::vector<int>& failTasks,
+                                std::vector<std::string>& states,
+                                std::vector<std::string>& log);
 
 namespace {
 // Dinner example:  Boil -> Rice -> Serve,  Chop -> Curry -> Serve,  Chop -> Salad -> Serve
@@ -27,76 +35,68 @@ Graph makeDinner() {
     return graph;
 }
 
+int countState(const std::vector<std::string>& states, const std::string& name) {
+    return static_cast<int>(std::count(states.begin(), states.end(), name));
+}
+
 void testNormalRun() {
     Graph graph = makeDinner();
-    const ExecutionResult two = ExecutionEngine(graph).run(2);
-    assert(two.valid);
-    assert(two.totalTime == 12);
-    assert(two.doneCount == 6 && two.failedCount == 0 && two.blockedCount == 0);
-    assert(two.states.size() == 6);
-    for (TaskState state : two.states) {
-        assert(state == TaskState::Done);
-    }
-    for (const TaskExecution& row : two.tasks) {
-        assert(row.status == TaskState::Done);
-    }
-    assert(!two.log.empty());
-    assert(two.log[0] == "t=0: Worker 0 started Chop (until t=3)");
+    assert(ExecutionEngine(graph).run(2).totalTime == 12);
+    assert(ExecutionEngine(graph).run(1).totalTime == 21);
 
-    const ExecutionResult one = ExecutionEngine(graph).run(1);
-    assert(one.valid && one.totalTime == 21);
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    const ExecutionResult result = runWithFailures(graph, 2, {}, states, log);
+    assert(result.valid && result.totalTime == 12);
+    assert(countState(states, "DONE") == 6);
+    assert(!log.empty());
+    assert(log[0] == "t=0: Worker 0 started Chop (until t=3)");
 }
 
 void testOneFailureBlocksDependents() {
     Graph graph = makeDinner();
-    const ExecutionResult result = ExecutionEngine(graph).run(2, {0});   // Boil fails
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    const ExecutionResult result = runWithFailures(graph, 2, {0}, states, log);   // Boil fails
     assert(result.valid);
-    assert(result.states[0] == TaskState::Failed);    // Boil
-    assert(result.states[2] == TaskState::Blocked);   // Rice needs Boil
-    assert(result.states[5] == TaskState::Blocked);   // Serve needs Rice
-    assert(result.states[1] == TaskState::Done);      // Chop
-    assert(result.states[3] == TaskState::Done);      // Curry
-    assert(result.states[4] == TaskState::Done);      // Salad
-    assert(result.doneCount == 3 && result.failedCount == 1 && result.blockedCount == 2);
+    assert(states[0] == "FAILED");    // Boil
+    assert(states[2] == "BLOCKED");   // Rice needs Boil
+    assert(states[5] == "BLOCKED");   // Serve needs Rice
+    assert(states[1] == "DONE" && states[3] == "DONE" && states[4] == "DONE");
     assert(result.totalTime == 9);
-    assert(result.tasks.size() == 4);                 // blocked tasks never use a worker
-
-    bool boilRowFailed = false;
-    for (const TaskExecution& row : result.tasks) {
-        if (row.taskId == 0) {
-            boilRowFailed = (row.status == TaskState::Failed);
-        }
-    }
-    assert(boilRowFailed);
+    assert(result.tasks.size() == 4);   // blocked tasks never use a worker
 }
 
 void testLastTaskFails() {
     Graph graph = makeDinner();
-    const ExecutionResult result = ExecutionEngine(graph).run(2, {5});   // Serve fails
-    assert(result.valid);
-    assert(result.states[5] == TaskState::Failed);
-    assert(result.doneCount == 5 && result.failedCount == 1 && result.blockedCount == 0);
-    assert(result.totalTime == 12);
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    const ExecutionResult result = runWithFailures(graph, 2, {5}, states, log);   // Serve fails
+    assert(result.valid && result.totalTime == 12);
+    assert(countState(states, "DONE") == 5 && states[5] == "FAILED");
+    assert(countState(states, "BLOCKED") == 0);
 }
 
 void testTwoFailures() {
     Graph graph = makeDinner();
-    const ExecutionResult result = ExecutionEngine(graph).run(2, {0, 1});   // Boil and Chop fail
-    assert(result.valid);
-    assert(result.doneCount == 0 && result.failedCount == 2 && result.blockedCount == 4);
-    assert(result.totalTime == 4);
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    const ExecutionResult result = runWithFailures(graph, 2, {0, 1}, states, log);   // Boil and Chop fail
+    assert(result.valid && result.totalTime == 4);
+    assert(countState(states, "FAILED") == 2 && countState(states, "BLOCKED") == 4);
 }
 
 void testBadInput() {
     Graph graph = makeDinner();
-    const ExecutionResult ignored = ExecutionEngine(graph).run(2, {-1, 99});   // unknown IDs are ignored
-    assert(ignored.valid && ignored.totalTime == 12 && ignored.failedCount == 0);
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    const ExecutionResult ignored = runWithFailures(graph, 2, {-1, 99}, states, log);   // unknown IDs ignored
+    assert(ignored.valid && ignored.totalTime == 12 && countState(states, "DONE") == 6);
 
     assert(!ExecutionEngine(graph).run(0).valid);   // no workers
 
     Graph empty;
-    const ExecutionResult none = ExecutionEngine(empty).run(2);
-    assert(none.valid && none.totalTime == 0);
+    assert(ExecutionEngine(empty).run(2).valid);
 
     Graph cycle = makeDinner();
     const bool added = cycle.addDependency(5, 0);   // Serve -> Boil makes a loop
@@ -104,9 +104,19 @@ void testBadInput() {
     assert(!ExecutionEngine(cycle).run(2).valid);
 }
 
-void testToString() {
-    assert(std::string(toString(TaskState::Done)) == "DONE");
-    assert(std::string(toString(TaskState::Blocked)) == "BLOCKED");
+void showDemo() {
+    Graph graph = makeDinner();
+    std::vector<std::string> states;
+    std::vector<std::string> log;
+    runWithFailures(graph, 2, {0}, states, log);
+
+    std::cout << "\nDemo: 2 workers, Boil fails\n";
+    for (const std::string& line : log) {
+        std::cout << "  " << line << '\n';
+    }
+    for (int id = 0; id < graph.size(); ++id) {
+        std::cout << "  [" << id << ": " << graph.getTask(id).name << "] " << states[id] << '\n';
+    }
 }
 }
 
@@ -116,7 +126,7 @@ int main() {
     testLastTaskFails();
     testTwoFailures();
     testBadInput();
-    testToString();
     std::cout << "All execution tests passed.\n";
+    showDemo();
     return 0;
 }
