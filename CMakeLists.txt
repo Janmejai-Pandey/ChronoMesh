@@ -10,6 +10,7 @@ set(CORE_SOURCES
     src/graph/Graph.cpp          # Person 1 (currently a temporary stub)
     src/scheduler/Scheduler.cpp  # Person 2
 )
+
 set(UI_SOURCES
     src/execution/Execution.cpp
     src/execution/Analytics.cpp
@@ -17,6 +18,7 @@ set(UI_SOURCES
     ui/src/Visualization.cpp
 )
 
+# Original team targets: keep these source lists unchanged.
 add_executable(ChronoMesh src/main.cpp ${CORE_SOURCES})
 add_executable(test_scheduler
     tests/test_scheduler.cpp
