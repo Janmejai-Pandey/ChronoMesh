@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 bool readInteger(const std::string& prompt, int& value) {
@@ -29,6 +30,31 @@ bool readInteger(const std::string& prompt, int& value) {
 bool readLine(const std::string& prompt, std::string& value) {
     std::cout << prompt;
     return static_cast<bool>(std::getline(std::cin, value));
+}
+
+bool wouldCreateCycle(const Graph& graph, int from, int to) {
+    if (from < 0 || to < 0 || from >= graph.size() || to >= graph.size()) {
+        return false;
+    }
+
+    std::vector<bool> visited(graph.size(), false);
+    std::vector<int> pending{to};
+    while (!pending.empty()) {
+        const int current = pending.back();
+        pending.pop_back();
+        if (current == from) {
+            return true;
+        }
+        if (visited[current]) {
+            continue;
+        }
+        visited[current] = true;
+        for (int next : graph.getSuccessors(current)) {
+            pending.push_back(next);
+        }
+    }
+
+    return false;
 }
 
 void showMenu() {
@@ -67,10 +93,12 @@ void addDependency(Graph& graph) {
         return;
     }
 
-    if (graph.addDependency(from, to)) {
+    if (wouldCreateCycle(graph, from, to)) {
+        std::cout << "Dependency not added because it would create a cycle.\n";
+    } else if (graph.addDependency(from, to)) {
         std::cout << "Dependency added.\n";
     } else {
-        std::cout << "Dependency not added. Check the IDs, duplicates, and cycles.\n";
+        std::cout << "Dependency not added. Check the IDs and duplicates.\n";
     }
 }
 
