@@ -26,24 +26,7 @@ bool Graph::addDependency(int from, int to) {
         }
     }
 
-    // A new edge from -> to would make a cycle if to can already reach from.
-    std::vector<bool> visited(tasks.size(), false);
-    std::vector<int> pending{to};
-    while (!pending.empty()) {
-        const int current = pending.back();
-        pending.pop_back();
-        if (current == from) {
-            return false;
-        }
-        if (visited[current]) {
-            continue;
-        }
-        visited[current] = true;
-        for (int next : successors[current]) {
-            pending.push_back(next);
-        }
-    }
-
+    // Keep the edge so the scheduler can report a cycle in the full graph.
     successors[from].push_back(to);
     predecessors[to].push_back(from);
     return true;
