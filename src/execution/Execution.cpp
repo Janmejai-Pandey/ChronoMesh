@@ -4,10 +4,14 @@
 #include "Queue.h"
 
 #include <chrono>
-#include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
+
+namespace {
+// Life of a task:  Waiting -> Ready -> Running -> Done   (or Failed)
+// Blocked = it can never run, because a task it depends on has failed.
+enum class TaskState { Waiting, Ready, Running, Done, Failed, Blocked };
 
 const char* toString(TaskState state) {
     switch (state) {
@@ -21,7 +25,6 @@ const char* toString(TaskState state) {
     return "UNKNOWN";
 }
 
-namespace {
 long long microsecondsSince(std::chrono::steady_clock::time_point start) {
     const auto now = std::chrono::steady_clock::now();
     return std::chrono::duration_cast<std::chrono::microseconds>(now - start).count();
@@ -32,30 +35,33 @@ std::string at(int time) {
 }
 
 // BFS from a failed task: every task that needs it (directly or indirectly)
-// can never run, so it becomes Blocked. Returns how many tasks were blocked.
-int blockDependents(const Graph& graph, int failedId, int time, ExecutionResult& result) {
+// can never run, so it becomes Blocked.
+void blockDependents(const Graph& graph, int failedId, int time,
+                     std::vector<TaskState>& states, int& finishedCount,
+                     std::vector<std::string>* log) {
     Queue pending(graph.size());
     pending.enqueue(failedId);
-    int blocked = 0;
 
     while (!pending.isEmpty()) {
         const int current = pending.dequeue();
         for (int next : graph.getSuccessors(current)) {
-            if (result.states[next] != TaskState::Waiting) {
+            if (states[next] != TaskState::Waiting) {
                 continue;   // already blocked earlier
             }
-            result.states[next] = TaskState::Blocked;
-            ++blocked;
-            result.log.push_back(at(time) + graph.getTask(next).name +
-                                 " BLOCKED (depends on failed " + graph.getTask(failedId).name + ")");
+            states[next] = TaskState::Blocked;
+            ++finishedCount;
+            if (log != nullptr) {
+                log->push_back(at(time) + graph.getTask(next).name +
+                               " BLOCKED (depends on failed " + graph.getTask(failedId).name + ")");
+            }
             pending.enqueue(next);
         }
     }
-    return blocked;
-}
 }
 
-ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& failTasks) const {
+// The whole simulation. log == nullptr means "do not write a log" (keeps run() fast for benchmarks).
+ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<int>& failTasks,
+                         std::vector<TaskState>& states, std::vector<std::string>* log) {
     const auto startClock = std::chrono::steady_clock::now();
     ExecutionResult result;
     result.workerCount = workerCount;
@@ -66,7 +72,7 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
         return result;
     }
 
-    result.states.assign(taskCount, TaskState::Waiting);
+    states.assign(taskCount, TaskState::Waiting);
     if (taskCount == 0) {
         result.valid = true;
         result.calculationTimeMicroseconds = microsecondsSince(startClock);
@@ -86,7 +92,7 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
         remainingDependencies[id] = static_cast<int>(graph.getPredecessors(id).size());
         if (remainingDependencies[id] == 0) {
             readyTasks.push(id, graph.getTask(id).priority);
-            result.states[id] = TaskState::Ready;
+            states[id] = TaskState::Ready;
         }
     }
 
@@ -94,7 +100,6 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
         bool busy = false;
         int taskId = -1;
         int finishTime = 0;
-        int row = -1;   // index of this task's row in result.tasks
     };
     std::vector<Worker> workers(workerCount);
     int finishedCount = 0;   // tasks in a final state: Done, Failed or Blocked
@@ -109,38 +114,36 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
             }
 
             const int taskId = worker.taskId;
-            const std::string& name = graph.getTask(taskId).name;
             worker.busy = false;
             ++finishedCount;
 
             if (willFail[taskId]) {
-                result.states[taskId] = TaskState::Failed;
-                result.tasks[worker.row].status = TaskState::Failed;
-                ++result.failedCount;
-                result.log.push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
-                                     " FAILED " + name);
-                const int blocked = blockDependents(graph, taskId, currentTime, result);
-                result.blockedCount += blocked;
-                finishedCount += blocked;
+                states[taskId] = TaskState::Failed;
+                if (log != nullptr) {
+                    log->push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
+                                   " FAILED " + graph.getTask(taskId).name);
+                }
+                blockDependents(graph, taskId, currentTime, states, finishedCount, log);
                 continue;
             }
 
-            result.states[taskId] = TaskState::Done;
-            result.tasks[worker.row].status = TaskState::Done;
-            ++result.doneCount;
-
+            states[taskId] = TaskState::Done;
             std::string unlocked;
             for (int next : graph.getSuccessors(taskId)) {
                 --remainingDependencies[next];
-                if (remainingDependencies[next] == 0 && result.states[next] == TaskState::Waiting) {
+                if (remainingDependencies[next] == 0 && states[next] == TaskState::Waiting) {
                     readyTasks.push(next, graph.getTask(next).priority);
-                    result.states[next] = TaskState::Ready;
-                    unlocked += (unlocked.empty() ? "" : ", ") + graph.getTask(next).name;
+                    states[next] = TaskState::Ready;
+                    if (log != nullptr) {
+                        unlocked += (unlocked.empty() ? "" : ", ") + graph.getTask(next).name;
+                    }
                 }
             }
-            result.log.push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
-                                 " finished " + name +
-                                 (unlocked.empty() ? "" : " -> unlocked " + unlocked));
+            if (log != nullptr) {
+                log->push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
+                               " finished " + graph.getTask(taskId).name +
+                               (unlocked.empty() ? "" : " -> unlocked " + unlocked));
+            }
         }
 
         // 2. Give ready tasks to free workers (highest priority first).
@@ -151,13 +154,14 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
 
             const int taskId = readyTasks.pop();
             const int finishTime = currentTime + graph.getTask(taskId).duration;
-            const int row = static_cast<int>(result.tasks.size());
-            workers[workerId] = {true, taskId, finishTime, row};
-            result.states[taskId] = TaskState::Running;
-            result.tasks.push_back({taskId, workerId, currentTime, finishTime, TaskState::Running});
-            result.log.push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
-                                 " started " + graph.getTask(taskId).name +
-                                 " (until t=" + std::to_string(finishTime) + ")");
+            workers[workerId] = {true, taskId, finishTime};
+            states[taskId] = TaskState::Running;
+            result.tasks.push_back({taskId, workerId, currentTime, finishTime});
+            if (log != nullptr) {
+                log->push_back(at(currentTime) + "Worker " + std::to_string(workerId) +
+                               " started " + graph.getTask(taskId).name +
+                               " (until t=" + std::to_string(finishTime) + ")");
+            }
         }
 
         // 3. Every task has reached a final state.
@@ -176,7 +180,9 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
         if (nextFinish == std::numeric_limits<int>::max()) {
             // No task can run: the dependency graph is not schedulable.
             result.tasks.clear();
-            result.log.push_back(at(currentTime) + "stuck - no task can run");
+            if (log != nullptr) {
+                log->push_back(at(currentTime) + "stuck - no task can run");
+            }
             result.calculationTimeMicroseconds = microsecondsSince(startClock);
             return result;
         }
@@ -188,23 +194,29 @@ ExecutionResult ExecutionEngine::run(int workerCount, const std::vector<int>& fa
     result.calculationTimeMicroseconds = microsecondsSince(startClock);
     return result;
 }
+}
 
-void displayExecutionLog(const Graph& graph, const ExecutionResult& execution) {
-    std::cout << "\n--- Execution Log ---\n";
-    if (!execution.valid) {
-        std::cout << "No log is available because execution did not complete.\n";
-        return;
-    }
-    for (const std::string& line : execution.log) {
-        std::cout << line << '\n';
-    }
+// Same as before for the whole team: no failures, no log.
+ExecutionResult ExecutionEngine::run(int workerCount) const {
+    std::vector<TaskState> states;
+    return simulate(graph, workerCount, {}, states, nullptr);
+}
 
-    std::cout << "\n--- Final Task States ---\n";
-    for (int id = 0; id < static_cast<int>(execution.states.size()); ++id) {
-        std::cout << '[' << id << ": " << graph.getTask(id).name << "] "
-                  << toString(execution.states[id]) << '\n';
+// Person 3 extra: run with failing tasks, and also return
+// the final state of every task ("DONE", "FAILED", "BLOCKED") and a step-by-step log.
+// Not in Execution.h yet (headers are kept unchanged) - add this declaration
+// to Execution.h when the team updates the header.
+ExecutionResult runWithFailures(const Graph& graph, int workerCount,
+                                const std::vector<int>& failTasks,
+                                std::vector<std::string>& states,
+                                std::vector<std::string>& log) {
+    std::vector<TaskState> finalStates;
+    log.clear();
+    const ExecutionResult result = simulate(graph, workerCount, failTasks, finalStates, &log);
+
+    states.clear();
+    for (TaskState state : finalStates) {
+        states.push_back(toString(state));
     }
-    std::cout << "Done: " << execution.doneCount
-              << "  Failed: " << execution.failedCount
-              << "  Blocked: " << execution.blockedCount << '\n';
+    return result;
 }
