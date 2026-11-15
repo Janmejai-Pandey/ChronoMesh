@@ -14,7 +14,7 @@ ChronoMesh/
 │   ├── execution/       # Worker management and task execution
 │   └── main.cpp         # Application entry point
 ├── ui/
-│   ├── src/             # UI implementation and visualization
+│   ├── src/             # UI implementation and visualization and app entry point
 │   ├── assets/          # Images, icons and styles
 │   └── README.md        # UI setup instructions
 ├── tests/               # Module-wise test cases
