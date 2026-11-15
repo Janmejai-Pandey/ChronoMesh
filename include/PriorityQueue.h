@@ -69,4 +69,8 @@ public:
         siftDown(0);
         return topId;
     }
+
+        int peekPriority() const {
+        return heap[0].priority;
+    }
 };
