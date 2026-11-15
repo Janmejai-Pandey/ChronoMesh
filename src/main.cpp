@@ -1,154 +1,232 @@
 #include <iostream>
-#include <cstdlib>
+#include <limits>
+#include <stdexcept>
 #include "../include/Graph.h"
+
 using namespace std;
 
-int readInt(const char* msg) {
-    int x;
-    while (true) {
-        cout << msg;
-        if (cin >> x) {
-            cin.ignore(10000, '\n');
-            return x;
-        }
-        if (cin.eof())
-            exit(0);
-        cin.clear();
-        cin.ignore(10000, '\n');
-        cout << "Invalid input. Enter a number." << endl;
-    }
-}
-
-void readName(const char* msg, char* buf) {
-    cout << msg;
-    cin.getline(buf, NAME_LEN);
-
-    if (cin.eof())
-        exit(0);
-
-    if (cin.fail()) {
-        cin.clear();
-        cin.ignore(10000, '\n');
-        cout << "Name was too long. Extra characters removed." << endl;
-    }
-}
-
 void showMenu() {
-    cout << "\n ChronoMesh : Graph Module \n"
-         << "1. Add task             2. Remove task\n"
-         << "3. Add dependency       4. Remove dependency\n"
-         << "5. Show tasks           6. Show graph\n"
-         << "7. Validate graph       8. Show prerequisites\n"
-         << "9. Show dependents     10. Show chain\n"
-         << "11. Statistics         12. Find task by name\n"
-         << "13. Rename task        14. Remove all dependencies\n"
-         << "15. Check connectivity\n"
-         << "0. Exit\n";
+    cout << "\n ChronoMesh Task Scheduler \n";
+    cout << "1. Add Task\n";
+    cout << "2. Add Dependency\n";
+    cout << "3. Display All Tasks\n";
+    cout << "4. Display Dependency Graph\n";
+    cout << "5. Check Circular Dependency\n";
+    cout << "6. View Task Details\n";
+    cout << "0. Exit\n";
+    cout << "Enter choice: ";
+}
+
+void addTask(Graph& g) {
+    Task t;
+
+    t.id = g.size();
+
+    cout << "\nEnter Task Name: ";
+    getline(cin >> ws, t.name);
+
+    if (t.name.empty()) {
+        cout << "Task name cannot be empty.\n";
+        return;
+    }
+
+    cout << "Enter Duration: ";
+
+    if (!(cin >> t.duration) || t.duration <= 0) {
+        cout << "Invalid duration.\n";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return;
+    }
+
+    cout << "Enter Priority (higher number = more urgent): ";
+
+    if (!(cin >> t.priority) || t.priority < 0) {
+        cout << "Invalid priority.\n";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return;
+    }
+
+    if (g.addTask(t))
+        cout << "Task added successfully! ID: " << t.id << endl;
+    else
+        cout << "Unable to add task.\n";
+}
+
+void addDependency(Graph& g) {
+    int from, to;
+
+    cout << "\nEnter prerequisite Task ID: ";
+
+    if (!(cin >> from)) {
+        cout << "Invalid input.\n";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return;
+    }
+
+    cout << "Enter dependent Task ID: ";
+
+    if (!(cin >> to)) {
+        cout << "Invalid input.\n";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return;
+    }
+
+    if (g.addDependency(from, to))
+        cout << "Dependency added successfully.\n";
+    else
+        cout << "Invalid dependency or circular dependency detected.\n";
+}
+
+void displayTasks(const Graph& g) {
+    vector<int> ids = g.getAllTaskIds();
+
+    if (ids.empty()) {
+        cout << "\nNo tasks available.\n";
+        return;
+    }
+
+    cout << "\n========== ALL TASKS ==========\n";
+
+    for (int i = 0; i < (int)ids.size(); i++) {
+        const Task& t = g.getTask(ids[i]);
+
+        cout << "\nTask ID: " << t.id;
+        cout << "\nName: " << t.name;
+        cout << "\nDuration: " << t.duration;
+        cout << "\nPriority: " << t.priority << endl;
+    }
+}
+
+void displayGraph(const Graph& g) {
+    vector<int> ids = g.getAllTaskIds();
+
+    if (ids.empty()) {
+        cout << "\nNo tasks available.\n";
+        return;
+    }
+
+    cout << "\n======= DEPENDENCY GRAPH =======\n";
+
+    for (int i = 0; i < (int)ids.size(); i++) {
+        int id = ids[i];
+
+        cout << id << " (" << g.getTask(id).name << ") -> ";
+
+        const vector<int>& next = g.getSuccessors(id);
+
+        if (next.empty())
+            cout << "None";
+
+        for (int j = 0; j < (int)next.size(); j++)
+            cout << next[j] << " ";
+
+        cout << endl;
+    }
+}
+
+void viewTask(const Graph& g) {
+    int id;
+
+    cout << "Enter Task ID: ";
+
+    if (!(cin >> id)) {
+        cout << "Invalid input.\n";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return;
+    }
+
+    try {
+        const Task& t = g.getTask(id);
+
+        cout << "\n======= TASK DETAILS =======\n";
+        cout << "ID: " << t.id << endl;
+        cout << "Name: " << t.name << endl;
+        cout << "Duration: " << t.duration << endl;
+        cout << "Priority: " << t.priority << endl;
+
+        cout << "\nPrerequisites: ";
+
+        const vector<int>& pre = g.getPredecessors(id);
+
+        if (pre.empty())
+            cout << "None";
+
+        for (int i = 0; i < (int)pre.size(); i++)
+            cout << pre[i] << " ";
+
+        cout << "\nDependents: ";
+
+        const vector<int>& next = g.getSuccessors(id);
+
+        if (next.empty())
+            cout << "None";
+
+        for (int i = 0; i < (int)next.size(); i++)
+            cout << next[i] << " ";
+
+        cout << endl;
+    }
+    catch (const out_of_range&) {
+        cout << "Task ID not found.\n";
+    }
 }
 
 int main() {
     Graph g;
-    char nm[NAME_LEN];
-    int ch, a, b, id;
+    int choice;
 
     do {
         showMenu();
-        ch = readInt("Choice: ");
 
-        switch (ch) {
+        if (!(cin >> choice)) {
+            cout << "Invalid input. Enter a number.\n";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            continue;
+        }
+
+        switch (choice) {
         case 1:
-            readName("Task name: ", nm);
-            id = g.addTask(nm);
-            if (id != -1)
-                cout << "Task added with ID " << id << endl;
+            addTask(g);
             break;
 
         case 2:
-            if (g.removeTask(readInt("Task ID: ")))
-                cout << "Task removed." << endl;
+            addDependency(g);
             break;
 
         case 3:
-            a = readInt("From (must finish first): ");
-            b = readInt("To (waits for it): ");
-            if (g.addDependency(a, b))
-                cout << "Dependency added." << endl;
+            displayTasks(g);
             break;
 
         case 4:
-            a = readInt("From: ");
-            b = readInt("To: ");
-            if (g.removeDependency(a, b))
-                cout << "Dependency removed." << endl;
+            displayGraph(g);
             break;
 
         case 5:
-            g.displayTasks();
+            if (g.hasCycle())
+                cout << "Circular dependency detected!\n";
+            else
+                cout << "No circular dependency found.\n";
             break;
 
         case 6:
-            g.displayGraph();
-            break;
-
-        case 7:
-            g.validateGraph();
-            break;
-
-        case 8:
-            g.displayPrerequisites(readInt("Task ID: "));
-            break;
-
-        case 9:
-            g.displayDependents(readInt("Task ID: "));
-            break;
-
-        case 10:
-            g.displayChain(readInt("Task ID: "));
-            break;
-
-        case 11:
-            cout << "Tasks: " << g.getTaskCount()
-                 << " | Dependencies: " << g.getDependencyCount() << endl;
-            g.displayNoPrerequisites();
-            g.displayNoDependents();
-            g.displayIsolated();
-            break;
-
-        case 12:
-            readName("Name to find: ", nm);
-            id = g.findTaskByName(nm);
-            if (id == -1)
-                cout << "Not found." << endl;
-            else
-                cout << "Found: ID " << id << endl;
-            break;
-
-        case 13:
-            id = readInt("Task ID: ");
-            readName("New name: ", nm);
-            if (g.renameTask(id, nm))
-                cout << "Renamed." << endl;
-            break;
-
-        case 14:
-            if (g.removeAllDependencies(readInt("Task ID: ")))
-                cout << "All dependencies removed." << endl;
-            break;
-
-        case 15:
-            a = readInt("Task A: ");
-            b = readInt("Task B: ");
-            cout << (g.isConnected(a, b) ? "Connected." : "Not connected.") << endl;
+            viewTask(g);
             break;
 
         case 0:
-            cout << "Goodbye!" << endl;
+            cout << "Exiting ChronoMesh. Goodbye!\n";
             break;
 
         default:
-            cout << "Unknown option." << endl;
+            cout << "Invalid choice.\n";
         }
-    } while (ch != 0);
+
+    } while (choice != 0);
 
     return 0;
 }
