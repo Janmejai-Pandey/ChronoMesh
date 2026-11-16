@@ -9,8 +9,6 @@
 #include <vector>
 
 namespace {
-// Life of a task:  Waiting -> Ready -> Running -> Done   (or Failed)
-// Blocked = it can never run, because a task it depends on has failed.
 enum class TaskState { Waiting, Ready, Running, Done, Failed, Blocked };
 
 const char* toString(TaskState state) {
@@ -34,8 +32,7 @@ std::string at(int time) {
     return "t=" + std::to_string(time) + ": ";
 }
 
-// BFS from a failed task: every task that needs it (directly or indirectly)
-// can never run, so it becomes Blocked.
+
 void blockDependents(const Graph& graph, int failedId, int time,
                      std::vector<TaskState>& states, int& finishedCount,
                      std::vector<std::string>* log) {
@@ -46,7 +43,7 @@ void blockDependents(const Graph& graph, int failedId, int time,
         const int current = pending.dequeue();
         for (int next : graph.getSuccessors(current)) {
             if (states[next] != TaskState::Waiting) {
-                continue;   // already blocked earlier
+                continue;  
             }
             states[next] = TaskState::Blocked;
             ++finishedCount;
@@ -59,7 +56,7 @@ void blockDependents(const Graph& graph, int failedId, int time,
     }
 }
 
-// The whole simulation. log == nullptr means "do not write a log" (keeps run() fast for benchmarks).
+
 ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<int>& failTasks,
                          std::vector<TaskState>& states, std::vector<std::string>* log) {
     const auto startClock = std::chrono::steady_clock::now();
@@ -102,11 +99,11 @@ ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<
         int finishTime = 0;
     };
     std::vector<Worker> workers(workerCount);
-    int finishedCount = 0;   // tasks in a final state: Done, Failed or Blocked
+    int finishedCount = 0;   
     int currentTime = 0;
 
     while (finishedCount < taskCount) {
-        // 1. Finish all work that ends now before starting newly ready tasks.
+      
         for (int workerId = 0; workerId < workerCount; ++workerId) {
             Worker& worker = workers[workerId];
             if (!worker.busy || worker.finishTime != currentTime) {
@@ -146,7 +143,7 @@ ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<
             }
         }
 
-        // 2. Give ready tasks to free workers (highest priority first).
+      
         for (int workerId = 0; workerId < workerCount && !readyTasks.isEmpty(); ++workerId) {
             if (workers[workerId].busy) {
                 continue;
@@ -164,12 +161,12 @@ ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<
             }
         }
 
-        // 3. Every task has reached a final state.
+  
         if (finishedCount == taskCount) {
             break;
         }
 
-        // 4. Jump the clock to the next moment a worker finishes.
+       
         int nextFinish = std::numeric_limits<int>::max();
         for (const Worker& worker : workers) {
             if (worker.busy && worker.finishTime < nextFinish) {
@@ -178,7 +175,7 @@ ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<
         }
 
         if (nextFinish == std::numeric_limits<int>::max()) {
-            // No task can run: the dependency graph is not schedulable.
+           
             result.tasks.clear();
             if (log != nullptr) {
                 log->push_back(at(currentTime) + "stuck - no task can run");
@@ -196,16 +193,13 @@ ExecutionResult simulate(const Graph& graph, int workerCount, const std::vector<
 }
 }
 
-// Same as before for the whole team: no failures, no log.
+
 ExecutionResult ExecutionEngine::run(int workerCount) const {
     std::vector<TaskState> states;
     return simulate(graph, workerCount, {}, states, nullptr);
 }
 
-// Person 3 extra: run with failing tasks, and also return
-// the final state of every task ("DONE", "FAILED", "BLOCKED") and a step-by-step log.
-// Not in Execution.h yet (headers are kept unchanged) - add this declaration
-// to Execution.h when the team updates the header.
+
 ExecutionResult runWithFailures(const Graph& graph, int workerCount,
                                 const std::vector<int>& failTasks,
                                 std::vector<std::string>& states,
